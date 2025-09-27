@@ -1,11 +1,9 @@
 package components
 
 import (
-	"fmt"
 	"github.com/dspasibenko/twin-go/twin"
 	"github.com/gdamore/tcell/v2"
 	"sync/atomic"
-	"time"
 )
 
 type ScrollableBox struct {
@@ -32,11 +30,10 @@ func (sb *ScrollableBox) Init(owner twin.Container, this twin.Container, style t
 }
 
 func (sb *ScrollableBox) Draw(cc *twin.CanvasContext) {
-	fmt.Println("Fuck draw", sb.vOffset.Load(), time.Now())
 	b := sb.Bounds().Normalized()
 	cc.FilledRectangle(b, sb.style)
 	if sb.flags&ScrollableBoxHasBorderBM != 0 {
-		cc.Rectangle(b, false, sb.style)
+		cc.Rectangle(b, sb.IsActive(), sb.style)
 	}
 	sbSize := b.Size()
 	if sb.flags&ScrollableBoxHasVerticalScrollBM != 0 {

@@ -3,6 +3,7 @@ package twin
 import (
 	"context"
 	"fmt"
+	"github.com/gdamore/tcell/v2"
 )
 
 type Component interface {
@@ -45,6 +46,14 @@ type Component interface {
 	// borders or scroll bars
 	ChildrenCanvasBounds() Rectangle
 
+	// CanBeFocused returns whether the component may be focused or not
+	CanBeFocused() bool
+
+	// OnKeyPressed is called when the component is notified about the key pressed.
+	// If the processing should stop on the component, it must return true, if the key is not
+	// handled and can be try by other component, it returns false
+	OnKeyPressed(ke *tcell.EventKey) bool
+
 	// OnOwnerResized called if the owner is resized
 	OnOwnerResized()
 
@@ -52,6 +61,9 @@ type Component interface {
 	// on the component basis (0, 0) is the top left the component corner
 	// The result is whether the component handled the action or skips it
 	OnMousePressed(p Point) bool
+
+	// OnFocus is called when the component receives or loses the focus
+	OnFocus(focused bool)
 
 	// box is the private function to make the interface be implemented by the base Box
 	// defined in the package.

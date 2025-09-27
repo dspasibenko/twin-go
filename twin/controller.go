@@ -64,6 +64,7 @@ func (c *controller) run() (context.Context, context.CancelFunc) {
 				if ev.Key() == tcell.KeyCtrlC {
 					return
 				}
+				c.root.OnKeyPressed(ev)
 			case *tcell.EventInterrupt:
 				return
 			case *tcell.EventResize:

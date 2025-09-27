@@ -3,6 +3,7 @@ package twin
 import (
 	"fmt"
 	"github.com/dspasibenko/twin-go/pkg/golibs/errors"
+	"github.com/gdamore/tcell/v2"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,7 @@ import (
 
 type Box struct {
 	visible atomic.Bool
+	active  atomic.Bool
 	bounds  atomic.Value
 	lock    sync.Mutex
 	// owner contains a reference to the owner of the component
@@ -45,6 +47,7 @@ func (b *Box) init(owner Container, this Component) error {
 		return fmt.Errorf("this %s cannot be added to itself %s: %w", this, owner, errors.ErrInvalid)
 	}
 	b.visible.Store(true)
+	b.active.Store(false)
 	if b.bounds.Load() == nil {
 		b.bounds.Store(Rectangle{})
 	}
@@ -127,6 +130,23 @@ func (b *Box) Owner() Container {
 	return b.owner
 }
 
+func (b *Box) CanBeFocused() bool { return false }
+
+func (b *Box) OnKeyPressed(ke *tcell.EventKey) bool {
+	if b.owner == nil {
+		return false
+	}
+	if ke.Key() == tcell.KeyTab || ke.Key() == tcell.KeyDown {
+		return b.owner.baseContainer().nextActive()
+	}
+	if ke.Key() == tcell.KeyBacktab || ke.Key() == tcell.KeyUp {
+		return b.owner.baseContainer().prevActive()
+	}
+	return false
+}
+
+func (b *Box) OnFocus(focused bool) {}
+
 func (b *Box) OnOwnerResized() {}
 
 func (b *Box) OnMousePressed(p Point) bool { return false }
@@ -158,6 +178,26 @@ func (b *Box) lockIfAlive() bool {
 
 func (b *Box) box() *Box {
 	return b
+}
+
+// IsActive returns whether the Box is active or not. Not recommended to override the function.
+func (b *Box) IsActive() bool {
+	return b.active.Load()
+}
+
+func (b *Box) setActive(active bool) {
+	b.lock.Lock()
+	if !b.IsVisible() {
+		b.lock.Unlock()
+		panic("box is not visible")
+	}
+	if b.active.Load() == active {
+		return
+	}
+	b.active.Store(active)
+	b.lock.Unlock()
+	b.this.OnFocus(active)
+	c.reDrawNeeded(b.this)
 }
 
 func (b *Box) close() {

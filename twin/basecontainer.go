@@ -3,6 +3,7 @@ package twin
 import (
 	"fmt"
 	"github.com/dspasibenko/twin-go/pkg/golibs/errors"
+	"github.com/gdamore/tcell/v2"
 	"sync/atomic"
 )
 
@@ -49,6 +50,21 @@ func (bc *BaseContainer) ChildrenBounds() Rectangle {
 		}
 	}
 	return r
+}
+
+func (bc *BaseContainer) OnKeyPressed(ke *tcell.EventKey) bool {
+	_, active := bc.getActive()
+	if active != nil && active.OnKeyPressed(ke) {
+		return true
+	}
+	if ke.Key() == tcell.KeyTab || ke.Key() == tcell.KeyDown {
+		return bc.nextActive()
+	}
+	if ke.Key() == tcell.KeyBacktab || ke.Key() == tcell.KeyUp {
+		return bc.prevActive()
+	}
+
+	return bc.box().OnKeyPressed(ke)
 }
 
 func (bc *BaseContainer) callForChildren(f func(Component)) {
@@ -140,6 +156,8 @@ func (bc *BaseContainer) Close() {
 	}
 }
 
+func (bc *BaseContainer) CanBeFocused() bool { return true }
+
 // String returns the BaseContainer string representation
 func (bc *BaseContainer) String() string {
 	return fmt.Sprintf("{BC: %s, children: %d}", bc.box(), len(bc.Children()))
@@ -152,4 +170,60 @@ func childIndex(children []Component, c Component) int {
 		}
 	}
 	return len(children)
+}
+
+func (bc *BaseContainer) getActive() (int, Component) {
+	children := bc.Children()
+	for i, child := range children {
+		if child.box().IsActive() {
+			return i, child
+		}
+	}
+	return -1, nil
+}
+
+func (bc *BaseContainer) nextActive() bool {
+	i, comp := bc.getActive()
+	i++
+	setActiveFalse(comp)
+	children := bc.Children()
+	for i < len(children) {
+		child := children[i]
+		if child.IsVisible() && child.CanBeFocused() {
+			child.box().setActive(true)
+			return true
+		}
+		i++
+	}
+	return false
+}
+
+func (bc *BaseContainer) prevActive() bool {
+	i, comp := bc.getActive()
+	setActiveFalse(comp)
+	children := bc.Children()
+	if i < 0 {
+		i = len(children)
+	}
+	i--
+	for i >= 0 && i < len(children) {
+		child := children[i]
+		if child.IsVisible() && child.CanBeFocused() {
+			child.box().setActive(true)
+			return true
+		}
+		i--
+	}
+	return false
+}
+
+func setActiveFalse(comp Component) {
+	if comp == nil {
+		return
+	}
+	comp.box().setActive(false)
+	if cont, ok := comp.(Container); ok {
+		_, child := cont.baseContainer().getActive()
+		setActiveFalse(child)
+	}
 }
