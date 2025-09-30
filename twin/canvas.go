@@ -105,6 +105,20 @@ func (cc *CanvasContext) Rectangle(r Rectangle, doubleLines bool, style tcell.St
 	}
 }
 
+func (cc *CanvasContext) HLine(pos Point, length int, style tcell.Style) {
+	if length <= 0 {
+		return
+	}
+
+	if length == 1 {
+		cc.Print(pos, string(tcell.RuneVLine), style)
+		return
+	}
+
+	str := string(tcell.RuneLTee) + strings.Repeat(string(tcell.RuneHLine), length-2) + string(tcell.RuneRTee)
+	cc.Print(pos, str, style)
+}
+
 // DrawVScrollBar draws the vertical scroll bar at the position pos:
 // sbSize - the size of scroll bar in cells
 // virtSize - the size of the field
@@ -146,7 +160,7 @@ func (cc *CanvasContext) DrawVScrollBar(pos Point, sbSize, virtSize, wSize, vOff
 		}
 		fg, _, _ := style.Decompose()
 		for i := 0; i < thumbLen; i++ {
-			cc.Print(pos, bar, tcell.StyleDefault.Background(fg))
+			cc.Print(pos, bar, style.Background(fg))
 			pos.Y++
 		}
 		for i := 0; i < trackLen-offs-thumbLen; i++ {
@@ -215,7 +229,7 @@ func newCanvas(s Size) *CanvasContext {
 // pushRelativeRegion adds the physical region (the display coordinates) for the region r, which
 // is defined in its parent coordinates stored on top of the stack. vp defines the virtual offset
 // in the r. After the call the top of the stack will contain the physical region for r and its
-// virtual point for calculation of the region r children, if any...
+// virtual point for calculation of the region r chldrn, if any...
 func (cc *CanvasContext) pushRelativeRegion(vp Point, r Rectangle) {
 	cse := cc.stack[len(cc.stack)-1]
 	r.X += cse.r.X // physical X

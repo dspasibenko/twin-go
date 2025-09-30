@@ -6,7 +6,35 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
+// Component is the interface which all the twin objects should implement. So as the
+// Component returns box() all widgets should inherit Box struct
+//
+// All the functions may be overwritten by the wiget and return required value. All of the
+// interface funcitons should be thread-safe and return desired values. The Box provides
+// full implementation of the Component, so the widget may override only what is needed.
+//
+// The OnXXX() functions family are the notification methods and they will be always called
+// by the twin from one go-routine only. They are not intended to be called not by the twin core
+// so the behavior will be undefined.
 type Component interface {
+	// IsVisible returns whether the component is visible or not
+	IsVisible() bool
+
+	// Bounds returns the position and size of the component. The position is defined relative to the region
+	// of the parent component.
+	Bounds() Rectangle
+
+	// VirtualOffset returns the offset of the drawing area. Normally returns (0,0), but is used for
+	// scrollable areads
+	VirtualOffset() Point
+
+	// ChildrenCanvasBounds returns the area for drawing chldrn. Can be useful if the component has some
+	// borders or scroll bars
+	ChildrenCanvasBounds() Rectangle // maybe
+
+	// CanBeFocused returns whether the component may be focused or not
+	CanBeFocused() bool
+
 	// Draw renders the component within the specified physical region, as defined by the cc parameter.
 	// The implementation utilizes Raylib functions, such as rl.Rectangle(), to draw the component on
 	// the display. The cc parameter specifies the position of the component on the physical display.
@@ -19,35 +47,8 @@ type Component interface {
 	// if IsVisible() returns true and its Bounds() intersect with the visible region defined by its
 	// parent Component (see Container).
 	//
-	// For a Container, the function will be called before its children Draw().
-	Draw(cc *CanvasContext)
-
-	// IsVisible returns whether the component is visible or not
-	IsVisible() bool
-
-	// SetVisible sets the component visibility
-	SetVisible(b bool)
-
-	// Close closes the component and frees all resources
-	Close()
-
-	// SetBounds defines the Component position on the parent's component region and its size.
-	SetBounds(r Rectangle)
-
-	// Bounds returns the position and size of the component. The position is defined relative to the region
-	// of the parent component.
-	Bounds() Rectangle
-
-	// VirtualOffset returns the offset of the drawing area. Normally returns (0,0), but is used for
-	// scrollable areads
-	VirtualOffset() Point
-
-	// ChildrenCanvasBounds returns the area for drawing children. Can be useful if the component has some
-	// borders or scroll bars
-	ChildrenCanvasBounds() Rectangle
-
-	// CanBeFocused returns whether the component may be focused or not
-	CanBeFocused() bool
+	// For a Container, the function will be called before its chldrn Draw().
+	OnDraw(cc *CanvasContext)
 
 	// OnKeyPressed is called when the component is notified about the key pressed.
 	// If the processing should stop on the component, it must return true, if the key is not
@@ -65,17 +66,15 @@ type Component interface {
 	// OnFocus is called when the component receives or loses the focus
 	OnFocus(focused bool)
 
+	// OnClosed is the final call for the object if closed
+	OnClosed()
+
+	// OnChildClosed is called when the component child is closed.
+	OnChildClosed(comp Component)
+
 	// box is the private function to make the interface be implemented by the base Box
 	// defined in the package.
 	box() *Box
-}
-
-type Container interface {
-	Component
-
-	Children() []Component
-
-	baseContainer() *BaseContainer
 }
 
 type Rectangle struct {
@@ -155,10 +154,47 @@ func Done() <-chan struct{} {
 }
 
 // Root returns the root container for the all elements
-func Root() Container {
+func Root() Component {
 	return c.root
 }
 
+// Redraw calls the comp redrawing forcedly
 func Redraw(comp Component) {
-	c.reDrawNeeded(comp)
+	c.reDrawNeeded(comp, &tcell.EventTime{})
+}
+
+// Close allows to close the comp
+func Close(comp Component) {
+	comp.box().close()
+}
+
+// IsActive returns whether the comp is active or not
+func IsActive(comp Component) bool {
+	return comp.box().isActive()
+}
+
+// This returns the Component which was provided to Box.Init(). It can be different
+// than the comp instance , if the comp type is an intermediate struct and This component was inherited
+// from it.
+func This(comp Component) Component {
+	return comp.box().this
+}
+
+// Owner returns the owner of the comp
+func Owner(comp Component) Component {
+	return comp.box().owner
+}
+
+// NewModalPad creates a transparent component as an owner for a modal component. As soon as
+// a component put on the modal pad, call SetActive() for it to make the component behavior as modal one
+// The modal pad is closed by ESC button.
+func NewModalPad() Component {
+	m := &modalPad{}
+	_ = m.Init(c.root, m)
+	m.SetBounds(c.root.Bounds())
+	return m
+}
+
+func SetActive(comp Component) {
+	c.s.PostEvent(&activateEvent{comp: comp})
 }

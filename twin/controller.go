@@ -16,6 +16,16 @@ type controller struct {
 	dirtySet map[Component]bool
 }
 
+type resizeEvent struct {
+	tcell.EventTime
+	comp Component
+}
+
+type activateEvent struct {
+	tcell.EventTime
+	comp Component
+}
+
 var c *controller
 
 func init() {
@@ -29,8 +39,8 @@ func init() {
 		panic(err)
 	}
 	c.s.EnableMouse()
-	c.s.EnablePaste()
-	c.s.EnableFocus()
+	//	c.s.EnablePaste()
+	//	c.s.EnableFocus()
 	c.dirtySet = make(map[Component]bool)
 	c.done = make(chan struct{})
 	c.root = newRootContainer()
@@ -45,12 +55,13 @@ func (c *controller) run() (context.Context, context.CancelFunc) {
 		defer close(c.done)
 		defer c.s.Fini()
 		defer cancel()
+		defer c.closeAll()
 		c.s.Clear()
 		go func() {
 			<-ctx.Done() // if someone called cancel() here or there...
 			c.s.PostEvent(tcell.NewEventInterrupt(nil))
 		}()
-		c.resize()
+		c.onScreenResize()
 		mousePressed := false
 		for {
 			c.onLoop()
@@ -68,7 +79,11 @@ func (c *controller) run() (context.Context, context.CancelFunc) {
 			case *tcell.EventInterrupt:
 				return
 			case *tcell.EventResize:
-				c.resize()
+				c.onScreenResize()
+			case *resizeEvent:
+				c.onResize(ev.comp)
+			case *activateEvent:
+				c.setActive(ev.comp)
 			case *tcell.EventMouse:
 				btns := ev.Buttons()
 				x, y := ev.Position()
@@ -103,25 +118,70 @@ func (c *controller) onMousePressedComp(cc *CanvasContext, comp Component, p Poi
 	b = comp.ChildrenCanvasBounds()
 	b = b.Move(cc.physicalPointXY(b.TopLeft()))
 	if b.Contains(p) {
-		// p is in the children bounds
+		// p is in the chldrn bounds
 		cc.pushRelativeRegion(comp.VirtualOffset(), b)
 		defer cc.pop()
-		if cont, ok := comp.(Container); ok {
-			for _, child := range cont.Children() {
-				if c.onMousePressedComp(cc, child, p) {
-					return true
-				}
+		children := comp.box().children()
+		_, active := comp.box().getActiveChild()
+		if active != nil && c.onMousePressedComp(cc, active, p) {
+			return true
+		}
+		for i := len(children) - 1; i >= 0; i-- {
+			child := children[i]
+			if child == active {
+				continue
+			}
+			if c.onMousePressedComp(cc, child, p) {
+				return true
 			}
 		}
 	}
-	return comp.OnMousePressed(Point{X: p.X - tl.X, Y: p.Y - tl.Y})
+	if comp.OnMousePressed(Point{X: p.X - tl.X, Y: p.Y - tl.Y}) {
+		return true
+	}
+	return c.setActive(comp)
+}
+
+func (c *controller) setActive(comp Component) bool {
+	if !comp.CanBeFocused() || !comp.IsVisible() {
+		return false
+	}
+	if comp.box().isActive() {
+		return true
+	}
+	o := comp.box().owner
+	for o != nil {
+		if !o.IsVisible() || !o.CanBeFocused() {
+			return false
+		}
+		o = o.box().owner
+	}
+	setActiveFalse(c.root)
+	comp.box().setActive(true)
+	o = comp.box().owner
+	for o != nil {
+		o.box().setActive(true)
+		o = o.box().owner
+	}
+	return true
 }
 
 func (c *controller) onLoop() {
 	c.lock.Lock()
 	dirtySet := c.dirtySet
-	c.dirtySet = make(map[Component]bool)
+	if len(dirtySet) > 0 {
+		c.dirtySet = make(map[Component]bool)
+	}
+	var deleted []Component
+	c.deleteComponent(c.root, &deleted) // handle deleted comps
 	c.lock.Unlock()
+
+	if len(deleted) > 0 {
+		for _, d := range deleted {
+			d.box().closeActually()
+		}
+		dirtySet[c.root] = true
+	}
 	if len(dirtySet) == 0 {
 		return
 	}
@@ -130,26 +190,68 @@ func (c *controller) onLoop() {
 	c.s.Show()
 }
 
-func (c *controller) draw(cc *CanvasContext, comp Component, force bool, ds map[Component]bool) {
-	if force || ds[comp] {
-		cc.pushRelativeRegion(Point{0, 0}, comp.Bounds())
-		comp.Draw(cc)
-		cc.pop()
-		force = true // redraw all children then automatically
-	}
-	if bc, ok := comp.(Container); ok {
-		cc.pushRelativeRegion(bc.VirtualOffset(), bc.ChildrenCanvasBounds())
-		chldrn := bc.Children()
-		for _, chld := range chldrn {
-			c.draw(cc, chld, force, ds)
+func (c *controller) deleteComponent(comp Component, deleted *[]Component) bool {
+	// check first if there is deleted childs
+	closed := comp.box().isClosed()
+	updateChildren := closed
+	for _, child := range comp.box().children() {
+		if closed {
+			child.box().close()
 		}
-		cc.pop()
+		if c.deleteComponent(child, deleted) {
+			updateChildren = true
+		}
+	}
+	if updateChildren {
+		comp.box().removeClosedChildren()
+	}
+	if closed {
+		*deleted = append(*deleted, comp)
+	}
+	return closed
+}
+
+func (c *controller) closeAll() {
+	c.lock.Lock()
+	c.root.close()
+	var deleted []Component
+	c.deleteComponent(c.root, &deleted)
+	c.lock.Unlock()
+	for _, d := range deleted {
+		d.box().closeActually()
 	}
 }
 
-func (c *controller) reDrawNeeded(comp Component) {
+func (c *controller) draw(cc *CanvasContext, comp Component, force bool, ds map[Component]bool) {
+	if !comp.IsVisible() {
+		return
+	}
+	if force || ds[comp] {
+		cc.pushRelativeRegion(Point{0, 0}, comp.Bounds())
+		comp.OnDraw(cc)
+		cc.pop()
+		force = true // redraw all chldrn then automatically
+	}
+	var active Component
+	cc.pushRelativeRegion(comp.VirtualOffset(), comp.ChildrenCanvasBounds())
+	chldrn := comp.box().children()
+	for _, chld := range chldrn {
+		if chld.box().isActive() {
+			active = chld
+		} else {
+			c.draw(cc, chld, force, ds)
+		}
+	}
+	if active != nil {
+		c.draw(cc, active, force, ds)
+	}
+	cc.pop()
+}
+
+func (c *controller) reDrawNeeded(comp Component, event tcell.Event) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
 	if comp.box().owner != nil {
 		c.dirtySet[comp.box().owner] = true
 	} else {
@@ -159,15 +261,28 @@ func (c *controller) reDrawNeeded(comp Component) {
 	if len(c.dirtySet) > 1 {
 		return
 	}
-	c.s.PostEvent(&tcell.EventTime{}) // kick the loop to wake up
+	c.s.PostEvent(event) // kick the loop to wake up
 }
 
-func (c *controller) resize() {
+func (c *controller) onScreenResize() {
 	w, h := c.s.Size()
 	sz := Size{Width: w, Height: h}
 	curSz := c.root.Bounds().Size()
 	if sz == curSz {
 		return
 	}
-	c.root.SetBounds(Rectangle{X: 0, Y: 0, Width: w, Height: h})
+	c.root.bounds.Store(Rectangle{X: 0, Y: 0, Width: w, Height: h})
+	c.onResize(c.root)
+	c.reDrawNeeded(c.root, &tcell.EventTime{})
+}
+
+func (c *controller) onResize(comp Component) {
+	for _, chld := range comp.box().children() {
+		chld.OnOwnerResized()
+	}
+}
+
+// Call the event that a component is resized
+func (c *controller) resize(comp Component) {
+	c.reDrawNeeded(comp, &resizeEvent{comp: comp})
 }
