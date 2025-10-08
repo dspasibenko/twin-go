@@ -14,9 +14,8 @@ type CBox struct {
 
 func newCBox(owner twin.Component, style tcell.Style) *CBox {
 	cb := new(CBox)
-	_ = cb.Init(owner, cb, style,
-		components.ScrollableBoxAutoHide|components.ScrollableBoxHasBothScrollsBM)
-	l, _ := components.NewLabel(cb, "Label1\nHa\nkjlajsdfl", components.AllignCenter, style.Foreground(tcell.ColorYellow).Background(tcell.ColorBlack))
+	_ = cb.Init(owner, cb, components.ScrollableBoxStyle{})
+	l, _ := components.NewLabel(cb, components.LabelStyle{}.WithPureText("Label1\nHa\nkjlajsdfl"))
 	l.SetBounds(twin.Rectangle{X: 1, Y: 1, Width: 7, Height: 2})
 	return cb
 }
@@ -68,22 +67,20 @@ func main() {
 	blueB.SetBounds(twin.Rectangle{X: 8, Y: 12, Width: 10, Height: 5})
 
 	mBox := newCBox(twin.NewModalPad(), tcell.StyleDefault.Background(tcell.ColorRed).Foreground(tcell.ColorWhite))
-	mBox.SetVirtualSize(twin.Size{Width: 99, Height: 29})
+	mBox.SetVirtualSize(twin.Size{Width: 99, Height: 30})
 	mBox.SetBounds(twin.Rectangle{X: 0, Y: 0, Width: 100, Height: 30})
 
-	components.NewButton(mBox, components.ButtonStyle{}.
-		Style(tcell.StyleDefault.Background(tcell.ColorGrey).Foreground(tcell.ColorYellow)).
-		ActiveStyle(tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorYellow)).
-		Rectangle(twin.Rectangle{X: 4, Y: 3, Width: 10, Height: 1}).
-		Text("[ Ok ]").
-		Allignment(components.AllignCenter).OnEnter(func(b *components.Button) { twin.Close(mBox) }))
+	lb := &components.ListBox{}
+	lb.Init(mBox, lb, components.ListBoxStyle{})
+	lb.SetBounds(twin.Rectangle{X: 2, Y: 2, Width: 20, Height: 10})
+	lb.SetVirtualSize(twin.Size{Width: 20, Height: 11})
 
-	components.NewButton(mBox, components.ButtonStyle{}.
-		Style(tcell.StyleDefault.Background(tcell.ColorGrey).Foreground(tcell.ColorYellow)).
-		ActiveStyle(tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorYellow)).
-		Rectangle(twin.Rectangle{X: 15, Y: 3, Width: 10, Height: 1}).
-		Text("Cancel").
-		Allignment(components.AllignRight))
+	components.NewButton(mBox, components.ButtonStyle{}.WithText("[ Ok ]").
+		WithRectangle(twin.Rectangle{X: 2, Y: 3, Width: 10, Height: 1}).
+		WithOnEnter(func(b *components.Button) { twin.Close(mBox) }))
+
+	components.NewButton(mBox, components.ButtonStyle{}.WithText("[ Cancel ]").
+		WithRectangle(twin.Rectangle{X: 15, Y: 3, Width: 10, Height: 1}))
 
 	twin.SetActive(mBox)
 	<-ctx.Done()

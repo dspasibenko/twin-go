@@ -108,12 +108,6 @@ func (b *Box) OnDraw(cc *CanvasContext) {
 }
 
 func (b *Box) OnKeyPressed(ke *tcell.EventKey) bool {
-	_, chld := b.getActiveChild()
-	if chld != nil {
-		if chld.OnKeyPressed(ke) {
-			return true
-		}
-	}
 	if ke.Key() == tcell.KeyTab || ke.Key() == tcell.KeyDown {
 		return b.nextActive()
 	}
@@ -128,6 +122,8 @@ func (b *Box) OnFocus(focused bool) {}
 func (b *Box) OnOwnerResized() {}
 
 func (b *Box) OnMousePressed(p Point) bool { return false }
+
+func (b *Box) OnMouseWheel(p Point, wheel MouseWheel) bool { return false }
 
 func (b *Box) OnClosed() {}
 

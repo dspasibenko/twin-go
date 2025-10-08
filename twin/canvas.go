@@ -11,6 +11,15 @@ type CanvasContext struct {
 	stack []ctxStackElem
 }
 
+type CanvasRectangleStyle int
+
+const (
+	CanvasRectangleSingle = CanvasRectangleStyle(iota)
+	CanvasRectangleDouble
+	CanvasRectangleRounded
+	CanvasRectangleBold
+)
+
 type ctxStackElem struct {
 	p Point
 	r Rectangle
@@ -51,6 +60,38 @@ func (cc *CanvasContext) Print(p Point, str string, style tcell.Style) {
 	}
 }
 
+// PrintL within limits (no longer than lim)
+func (cc *CanvasContext) PrintL(p Point, str string, lim int, style tcell.Style) {
+	if lim <= 0 {
+		return
+	}
+	pp := cc.physicalPointXY(p)
+	pr := cc.physicalRegion()
+	prBR := pr.BottomRight()
+	if pp.Y < pr.Y || prBR.Y < pp.Y {
+		return // is not visible vertically
+	}
+	for _, chr := range str {
+		w := runewidth.RuneWidth(chr)
+		if w == 0 {
+			chr = ' '
+			w = 1
+		}
+		if pp.X > prBR.X || prBR.X < pp.X+w-1 {
+			return // moving right of the rightest border
+		}
+		if pp.X >= pr.X {
+			if lim <= 0 {
+				return
+			}
+			lim--
+			// only put the chr on the screen if it's completely visible on the rectangle (pr)
+			c.s.SetContent(int(pp.X), int(pp.Y), chr, nil, style)
+		}
+		pp.X += w
+	}
+}
+
 func (cc *CanvasContext) FilledRectangle(r Rectangle, style tcell.Style) {
 	str := strings.Repeat(" ", int(r.Width))
 	for i := 0; i < r.Height; i++ {
@@ -58,18 +99,25 @@ func (cc *CanvasContext) FilledRectangle(r Rectangle, style tcell.Style) {
 	}
 }
 
-func (cc *CanvasContext) Rectangle(r Rectangle, doubleLines bool, style tcell.Style) {
+func (cc *CanvasContext) Rectangle(r Rectangle, crStyle CanvasRectangleStyle, style tcell.Style) {
 	if r.Width <= 0 || r.Height <= 0 {
 		return
 	}
 
 	var h, v, tl, tr, bl, br rune
-	if doubleLines {
-		h, v = '═', '║'
-		tl, tr, bl, br = '╔', '╗', '╚', '╝'
-	} else {
+	switch crStyle {
+	case CanvasRectangleSingle:
 		h, v = '─', '│'
 		tl, tr, bl, br = '┌', '┐', '└', '┘'
+	case CanvasRectangleDouble:
+		h, v = '═', '║'
+		tl, tr, bl, br = '╔', '╗', '╚', '╝'
+	case CanvasRectangleRounded:
+		h, v = '─', '│'
+		tl, tr, bl, br = '╭', '╮', '╰', '╯'
+	case CanvasRectangleBold:
+		h, v = '━', '┃'
+		tl, tr, bl, br = '┏', '┓', '┗', '┛'
 	}
 
 	if r.Width == 1 && r.Height == 1 {

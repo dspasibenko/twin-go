@@ -63,6 +63,8 @@ type Component interface {
 	// The result is whether the component handled the action or skips it
 	OnMousePressed(p Point) bool
 
+	OnMouseWheel(p Point, wheel MouseWheel) bool
+
 	// OnFocus is called when the component receives or loses the focus
 	OnFocus(focused bool)
 
@@ -76,6 +78,15 @@ type Component interface {
 	// defined in the package.
 	box() *Box
 }
+
+type MouseWheel int
+
+const (
+	MouseWheelUp    = MouseWheel(tcell.WheelUp)
+	MouseWheelDown  = MouseWheel(tcell.WheelDown)
+	MouseWheelLeft  = MouseWheel(tcell.WheelLeft)
+	MouseWheelRight = MouseWheel(tcell.WheelRight)
+)
 
 type Rectangle struct {
 	X      int
@@ -137,6 +148,10 @@ func (r Rectangle) String() string {
 
 func (sz Size) Add(w, h int) Size {
 	return Size{Width: max(0, sz.Width+w), Height: max(0, sz.Height+h)}
+}
+
+func (p Point) Add(x, y int) Point {
+	return Point{X: p.X + x, Y: p.Y + y}
 }
 
 // Run runs the main cycle of twin and returns the context and the cancel() function

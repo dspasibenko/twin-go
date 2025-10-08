@@ -75,7 +75,7 @@ func (c *controller) run() (context.Context, context.CancelFunc) {
 				if ev.Key() == tcell.KeyCtrlC {
 					return
 				}
-				c.root.OnKeyPressed(ev)
+				c.onKeyPressed(c.root, ev)
 			case *tcell.EventInterrupt:
 				return
 			case *tcell.EventResize:
@@ -86,13 +86,29 @@ func (c *controller) run() (context.Context, context.CancelFunc) {
 				c.setActive(ev.comp)
 			case *tcell.EventMouse:
 				btns := ev.Buttons()
+				clicks := btns & 255
 				x, y := ev.Position()
-				if !mousePressed && btns != tcell.ButtonNone {
+				if !mousePressed && clicks != 0 {
 					mousePressed = true
 				}
-				if mousePressed && btns == tcell.ButtonNone {
-					c.onMousePressed(Point{x, y})
+				if mousePressed && clicks == 0 {
+					c.onMouse(Point{x, y}, func(comp Component, p Point) {
+						comp.OnMousePressed(p)
+					})
 					mousePressed = false
+				}
+				if btns&0xF00 != 0 {
+					// translate the Up and Down to Left/Right if the modifiers are pressed
+					if ev.Modifiers() != 0 {
+						if btns == tcell.WheelUp {
+							btns = tcell.WheelLeft
+						} else if btns == tcell.WheelDown {
+							btns = tcell.WheelRight
+						}
+					}
+					c.onMouse(Point{x, y}, func(comp Component, p Point) {
+						comp.OnMouseWheel(p, MouseWheel(btns))
+					})
 				}
 			}
 		}
@@ -100,12 +116,24 @@ func (c *controller) run() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-func (c *controller) onMousePressed(p Point) {
-	cc := newCanvas(c.root.Bounds().Size())
-	c.onMousePressedComp(cc, c.root, p)
+func (c *controller) onKeyPressed(comp Component, ke *tcell.EventKey) bool {
+	_, chld := comp.box().getActiveChild()
+	if chld != nil {
+		if c.onKeyPressed(chld, ke) {
+			return true
+		}
+	}
+	return comp.OnKeyPressed(ke)
 }
 
-func (c *controller) onMousePressedComp(cc *CanvasContext, comp Component, p Point) bool {
+type mouseF func(comp Component, p Point)
+
+func (c *controller) onMouse(p Point, mf mouseF) {
+	cc := newCanvas(c.root.Bounds().Size())
+	c.onMouseComp(cc, c.root, p, mf)
+}
+
+func (c *controller) onMouseComp(cc *CanvasContext, comp Component, p Point, mf mouseF) bool {
 	if !comp.IsVisible() {
 		return false
 	}
@@ -123,7 +151,7 @@ func (c *controller) onMousePressedComp(cc *CanvasContext, comp Component, p Poi
 		defer cc.pop()
 		children := comp.box().children()
 		_, active := comp.box().getActiveChild()
-		if active != nil && c.onMousePressedComp(cc, active, p) {
+		if active != nil && c.onMouseComp(cc, active, p, mf) {
 			return true
 		}
 		for i := len(children) - 1; i >= 0; i-- {
@@ -131,14 +159,12 @@ func (c *controller) onMousePressedComp(cc *CanvasContext, comp Component, p Poi
 			if child == active {
 				continue
 			}
-			if c.onMousePressedComp(cc, child, p) {
+			if c.onMouseComp(cc, child, p, mf) {
 				return true
 			}
 		}
 	}
-	if comp.OnMousePressed(Point{X: p.X - tl.X, Y: p.Y - tl.Y}) {
-		return true
-	}
+	mf(comp, Point{X: p.X - tl.X, Y: p.Y - tl.Y})
 	return c.setActive(comp)
 }
 
